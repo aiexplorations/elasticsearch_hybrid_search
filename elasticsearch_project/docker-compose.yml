@@ -1,0 +1,51 @@
+version: '3.8'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  data_generation_service:
+    build: ./data_generation_service
+    ports:
+      - "8000:8000"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - LLAMA_API_URL=http://host.docker.internal:11434/api/generate
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  embedding_service:
+    build: ./embedding_service
+    ports:
+      - "8001:8001"
+
+  backend_service:
+    build: ./backend_service
+    ports:
+      - "8002:8002"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      embedding_service:
+        condition: service_started
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+
+volumes:
+  esdata:
+    driver: local
