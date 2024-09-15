@@ -1,4 +1,6 @@
 fastapi
 uvicorn
 elasticsearch==8.8.0
+requests
+asyncio
 httpx

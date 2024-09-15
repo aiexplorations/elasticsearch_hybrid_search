@@ -25,7 +25,7 @@ services:
         condition: service_healthy
     environment:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - LLAMA_API_URL=http://host.docker.internal:11434/api/generate
+      - OLLAMA_API_URL=http://host.docker.internal:11434/api/generate
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

@@ -5,6 +5,8 @@ from typing import List, Dict
 import time
 import os
 import logging
+import asyncio
+import requests
 
 logging.basicConfig(level=logging.INFO)
 
@@ -30,28 +32,40 @@ def create_es_client(max_retries=10, retry_interval=5):
 
 es = None
 
-LLAMA_API_URL = "http://host.docker.internal:11434/api/generate"
+OLLAMA_API_URL = "http://host.docker.internal:11434/api/generate"
 
-async def generate_universe_paragraph() -> Dict:
-    prompt = """Generate a cool, interesting paragraph of about 50 words about the universe. Make it engaging and thought-provoking."""
 
-    async with httpx.AsyncClient() as client:
-        logger.info(f"Generating universe paragraph with prompt: {prompt}")
-        logger.info(f"Sending request to {LLAMA_API_URL} with Prompt: {prompt}")
-        response = await client.post(LLAMA_API_URL, json={
-            "model": "llama3.1:latest",
-            "prompt": prompt,
-            "stream": False,
-        })
+def generate_universe_paragraph(max_retries=3, retry_delay=1) -> Dict:
+    prompt = "Generate a cool, interesting paragraph of about 50 words about the universe. Make it engaging and thought-provoking."
 
-    if response.status_code != 200:
-        logger.error(f"Failed to generate universe paragraph: {response.text}")
-        raise HTTPException(status_code=500, detail="Failed to generate universe paragraph")
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Generating universe paragraph with prompt: {prompt}")
+            response = requests.post(OLLAMA_API_URL, json={
+                "model": "phi3",
+                "prompt": prompt,
+                "stream": False
+            }, timeout=80)
 
-    return {"content": response.json()["data"]}
+            response.raise_for_status()  # Raises an HTTPError for bad responses
+
+            response_data = response.json()
+            content = response_data.get("response", "")
+            if not content:
+                raise ValueError("Empty response from Ollama")
+
+            logger.info(f"Successfully generated paragraph: {content[:50]}...")
+            return {"content": content}
+        except requests.RequestException as e:
+            logger.error(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                raise HTTPException(status_code=500, detail=f"Failed to generate paragraph after {max_retries} attempts: {str(e)}")
 
 @app.post("/generate-universe-paragraphs")
-async def generate_universe_paragraphs(count: int = 1) -> List[Dict]:
+def generate_universe_paragraphs(count: int = 1) -> List[Dict]:
     global es
     if es is None:
         raise HTTPException(status_code=500, detail="Elasticsearch client not initialized")
@@ -59,14 +73,18 @@ async def generate_universe_paragraphs(count: int = 1) -> List[Dict]:
     paragraphs = []
     for _ in range(count):
         try:
-            logger.info("Generating universe paragraph")
-            paragraph = await generate_universe_paragraph()
+            paragraph = generate_universe_paragraph()
             paragraphs.append(paragraph)
             
-            es.index(index="universe_paragraphs", body=paragraph)
-        except Exception as e:
-            logger.error(f"Failed to generate or index paragraph: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to generate or index paragraph: {str(e)}")
+            try:
+                es.index(index="universe_paragraphs", body=paragraph)
+                logger.info(f"Successfully indexed paragraph: {paragraph['content'][:50]}...")
+            except Exception as e:
+                logger.error(f"Failed to index paragraph: {str(e)}")
+                # Consider whether you want to raise an exception here or continue with other paragraphs
+        except HTTPException as he:
+            logger.error(f"HTTP exception occurred: {str(he)}")
+            raise he
     
     return paragraphs
 

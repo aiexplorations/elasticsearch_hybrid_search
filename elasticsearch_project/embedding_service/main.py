@@ -2,9 +2,15 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import torch
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
-model = SentenceTransformer('intfloat/e5-large-v2')
+model = SentenceTransformer('intfloat/e5-base-v2')
+logger.info("Loaded SentenceTransformer model: intfloat/e5-base-v2")
 
 class TextInput(BaseModel):
     text: str
@@ -13,6 +19,7 @@ class TextInput(BaseModel):
 async def compute_embedding(input: TextInput):
     with torch.no_grad():
         embedding = model.encode(input.text)
+    logger.info(f"Computed embedding for text: {input.text}")
     return {"embedding": embedding.tolist()}
 
 if __name__ == "__main__":
